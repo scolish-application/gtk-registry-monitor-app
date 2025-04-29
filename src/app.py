@@ -51,6 +51,7 @@ class Application(Adw.Application):
                     if message['type'] == 'message':
                         # Use GLib.idle_add to update UI from another thread
                         GLib.idle_add(self.main_window.refresh_entries)
+                        GLib.idle_add(self.main_window.show_notification, "Novo registro detectado!")
             
             self.pubsub_thread = threading.Thread(target=listen_for_messages, daemon=True)
             self.pubsub_thread.start()
@@ -59,104 +60,51 @@ class Application(Adw.Application):
             print(f"Redis connection error: {e}")
 
 
+@Gtk.Template(filename='../ui/login_window.ui')
 class LoginWindow(Adw.ApplicationWindow):
-    def __init__(self, application):
-        super().__init__(application=application)
-        self.app = application
-        
-        self.set_title("Schola Monitor - Login")
+    __gtype_name__ = "LoginWindow"
+    
+    username_entry = Gtk.Template.Child()
+    password_entry = Gtk.Template.Child()
+    login_button = Gtk.Template.Child()
+    error_label = Gtk.Template.Child()
+
+    __gsignals__ = {
+        "login-successful": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.set_title("Login - Sistema de Gestão Escolar")
         self.set_default_size(400, 300)
         
-        # Create a header bar
-        header_bar = Adw.HeaderBar()
-        
-        # Add minimize button
-        minimize_button = Gtk.Button()
-        minimize_button.set_icon_name("window-minimize-symbolic")
-        minimize_button.connect("clicked", self.on_minimize_clicked)
-        
-        # Main container
-        self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
-        self.main_box.set_margin_top(32)
-        self.main_box.set_margin_bottom(32)
-        self.main_box.set_margin_start(32)
-        self.main_box.set_margin_end(32)
-        
-        # Create a content box to center items
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
-        content_box.set_valign(Gtk.Align.CENTER)
-        content_box.set_halign(Gtk.Align.CENTER)
-        content_box.set_vexpand(True)
-        content_box.set_hexpand(True)
-        
-        # Avatar
-        avatar = Adw.Avatar(size=96, show_initials=False)
-        content_box.append(avatar)
-        
-        # Welcome text
-        welcome_label = Gtk.Label()
-        welcome_label.set_markup("<span size='x-large'>Bem-vindo ao Schola Monitor</span>")
-        content_box.append(welcome_label)
-        
-        # Username entry
-        username_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        username_label = Gtk.Label(label="Nome de usuário", halign=Gtk.Align.START)
-        self.username_entry = Gtk.Entry()
-        username_box.append(username_label)
-        username_box.append(self.username_entry)
-        content_box.append(username_box)
-        
-        # Password entry
-        password_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        password_label = Gtk.Label(label="Senha", halign=Gtk.Align.START)
-        self.password_entry = Gtk.Entry()
-        self.password_entry.set_visibility(False)
-        self.password_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
-        password_box.append(password_label)
-        password_box.append(self.password_entry)
-        content_box.append(password_box)
-        
-        # Login button
-        self.login_button = Gtk.Button(label="Entrar")
+        # Conectar sinais
         self.login_button.connect("clicked", self.on_login_clicked)
-        self.login_button.add_css_class("suggested-action")
-        self.login_button.set_margin_top(10)
-        content_box.append(self.login_button)
-        
-        # Error label
-        self.error_label = Gtk.Label()
-        self.error_label.add_css_class("error")
-        content_box.append(self.error_label)
-        
-        # Add content to the main box
-        self.main_box.append(content_box)
-        
-        # Create a box to hold everything
-        root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        root_box.append(header_bar)
-        root_box.append(self.main_box)
-        
-        # Add to window
-        self.set_content(root_box)
+        self.username_entry.connect("activate", self.on_entry_activate)
+        self.password_entry.connect("activate", self.on_entry_activate)
+    
+    def on_entry_activate(self, entry):
+        self.on_login_clicked(None)
     
     def on_login_clicked(self, button):
         username = self.username_entry.get_text()
         password = self.password_entry.get_text()
         
         if not username or not password:
-            self.error_label.set_text("Por favor, preencha todos os campos")
+            self.error_label.set_text("Por favor, preencha todos os campos.")
+            self.error_label.set_visible(True)
             return
         
-        # Attempt login
-        success, message = self.app.auth_service.login(username, password)
+        # Chama o serviço de autenticação
+        success, message = AuthService.login(username, password)
         
         if success:
-            self.app.show_main_window()
+            # Emite o sinal de login bem-sucedido
+            self.emit("login-successful")
         else:
+            # Mostra a mensagem de erro
             self.error_label.set_text(message)
-    
-    def on_minimize_clicked(self, button):
-        self.minimize()
+            self.error_label.set_visible(True)
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -169,23 +117,19 @@ class MainWindow(Adw.ApplicationWindow):
         
         # Create header bar with window controls
         header_bar = Adw.HeaderBar()
+        header_bar.set_title_widget(Adw.WindowTitle.new("Schola Monitor", "Sistema de Monitoramento"))
         
-        # Add minimize button
-        minimize_button = Gtk.Button()
-        minimize_button.set_icon_name("window-minimize-symbolic")
-        minimize_button.connect("clicked", self.on_minimize_clicked)
-        header_bar.pack_start(minimize_button)
-        
-        # Add hide button (iconify)
-        hide_button = Gtk.Button()
-        hide_button.set_icon_name("window-restore-symbolic")
-        hide_button.connect("clicked", self.on_hide_clicked)
-        header_bar.pack_start(hide_button)
+        # Add refresh button to header
+        refresh_button = Gtk.Button()
+        refresh_button.set_icon_name("view-refresh-symbolic")
+        refresh_button.set_tooltip_text("Atualizar registros")
+        refresh_button.connect("clicked", self.on_refresh_clicked)
+        header_bar.pack_end(refresh_button)
         
         # Setup main content
         self.main_layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         
-        # Header with refresh button
+        # Header with title
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header_box.set_margin_top(24)
         header_box.set_margin_bottom(12)
@@ -197,13 +141,7 @@ class MainWindow(Adw.ApplicationWindow):
         title_label.set_halign(Gtk.Align.START)
         title_label.set_hexpand(True)
         
-        refresh_button = Gtk.Button()
-        refresh_button.set_icon_name("view-refresh-symbolic")
-        refresh_button.connect("clicked", self.on_refresh_clicked)
-        refresh_button.set_valign(Gtk.Align.CENTER)
-        
         header_box.append(title_label)
-        header_box.append(refresh_button)
         
         # Create toast overlay for notifications
         self.toast_overlay = Adw.ToastOverlay()
@@ -216,12 +154,25 @@ class MainWindow(Adw.ApplicationWindow):
         content_box.set_margin_end(24)
         content_box.set_vexpand(True)
         content_box.set_halign(Gtk.Align.FILL)
-        content_box.set_valign(Gtk.Align.CENTER)
+        content_box.set_valign(Gtk.Align.FILL)
         
         # Create scrolled window for list box
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
+        scrolled.set_margin_top(4)
+        
+        # Status bar
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        status_box.set_margin_bottom(12)
+        
+        self.status_label = Gtk.Label(label="Carregando registros...")
+        self.status_label.set_halign(Gtk.Align.START)
+        self.status_label.add_css_class("caption")
+        self.status_label.add_css_class("dim-label")
+        status_box.append(self.status_label)
+        
+        content_box.append(status_box)
         
         # Registration list
         self.list_box = Gtk.ListBox()
@@ -251,6 +202,8 @@ class MainWindow(Adw.ApplicationWindow):
     
     def refresh_entries(self):
         """Refresh the list of registrations"""
+        self.status_label.set_text("Atualizando registros...")
+        
         # Clear existing entries
         while True:
             row = self.list_box.get_row_at_index(0)
@@ -264,31 +217,58 @@ class MainWindow(Adw.ApplicationWindow):
             
             if not entries:
                 empty_row = Gtk.ListBoxRow()
-                empty_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-                empty_box.set_margin_top(12)
-                empty_box.set_margin_bottom(12)
+                empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+                empty_box.set_margin_top(36)
+                empty_box.set_margin_bottom(36)
                 empty_box.set_margin_start(12)
                 empty_box.set_margin_end(12)
+                empty_box.set_halign(Gtk.Align.CENTER)
+                
+                # Empty state icon
+                empty_icon = Gtk.Image.new_from_icon_name("system-search-symbolic")
+                empty_icon.set_pixel_size(48)
+                empty_icon.add_css_class("dim-label")
                 
                 empty_label = Gtk.Label(label="Não há registros de entrada disponíveis")
+                empty_label.add_css_class("dim-label")
+                
+                empty_box.append(empty_icon)
                 empty_box.append(empty_label)
                 empty_row.set_child(empty_box)
                 self.list_box.append(empty_row)
+                
+                self.status_label.set_text("Nenhum registro encontrado")
             else:
                 # Add each entry to the list
                 for entry in entries:
                     row = Gtk.ListBoxRow()
-                    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-                    box.set_margin_top(12)
-                    box.set_margin_bottom(12)
-                    box.set_margin_start(12)
-                    box.set_margin_end(12)
+                    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+                    box.set_margin_top(16)
+                    box.set_margin_bottom(16)
+                    box.set_margin_start(16)
+                    box.set_margin_end(16)
+                    
+                    # Card color indicator
+                    card_color = "blue"  # Default color
+                    if "carte" in entry["user"] and entry["user"]["carte"]:
+                        card_color = entry["user"]["carte"]["color"].lower()
+                    
+                    color_box = Gtk.Box()
+                    color_box.add_css_class(f"card-{card_color}")
+                    color_box.set_size_request(16, 16)
+                    color_box.set_valign(Gtk.Align.CENTER)
+                    
+                    # User avatar (initials)
+                    user_name = entry["user"]["name"]
+                    initials = "".join([name[0].upper() for name in user_name.split() if name])[:2]
+                    avatar = Adw.Avatar(size=42, text=user_name, show_initials=True)
                     
                     # User info
                     user_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
                     user_box.set_hexpand(True)
+                    user_box.set_margin_start(12)
                     
-                    name_label = Gtk.Label(label=entry["user"]["name"])
+                    name_label = Gtk.Label(label=user_name)
                     name_label.set_halign(Gtk.Align.START)
                     name_label.add_css_class("heading")
                     
@@ -300,29 +280,42 @@ class MainWindow(Adw.ApplicationWindow):
                     user_box.append(name_label)
                     user_box.append(time_label)
                     
-                    # Card color indicator
-                    if "carte" in entry["user"] and entry["user"]["carte"]:
-                        color = entry["user"]["carte"]["color"].lower()
-                        color_box = Gtk.Box()
-                        color_box.add_css_class(f"card-{color}")
-                        color_box.set_size_request(24, 24)
-                        box.append(color_box)
-                    
+                    box.append(color_box)
+                    box.append(avatar)
                     box.append(user_box)
+                    
                     row.set_child(box)
                     self.list_box.append(row)
+                
+                self.status_label.set_text(f"{len(entries)} registros encontrados • Última atualização: agora")
                 
         except Exception as e:
             print(f"Error refreshing entries: {e}")
             error_row = Gtk.ListBoxRow()
-            error_label = Gtk.Label(label=f"Erro ao carregar registros: {str(e)}")
-            error_row.set_child(error_label)
+            error_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            error_box.set_margin_top(24)
+            error_box.set_margin_bottom(24)
+            error_box.set_margin_start(12)
+            error_box.set_margin_end(12)
+            error_box.set_halign(Gtk.Align.CENTER)
+            
+            error_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+            error_icon.set_pixel_size(48)
+            
+            error_label = Gtk.Label()
+            error_label.set_markup(f"<span color='#e74c3c'>Erro ao carregar registros:</span>\n{str(e)}")
+            error_label.set_justify(Gtk.Justification.CENTER)
+            
+            error_box.append(error_icon)
+            error_box.append(error_label)
+            error_row.set_child(error_box)
             self.list_box.append(error_row)
-        
-        self.show_notification("Registros atualizados")
+            
+            self.status_label.set_text("Erro ao carregar registros")
     
     def on_refresh_clicked(self, button):
         self.refresh_entries()
+        self.show_notification("Registros atualizados")
     
     def show_notification(self, message):
         toast = Adw.Toast.new(message)
