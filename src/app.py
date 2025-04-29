@@ -330,18 +330,6 @@ class MainWindow(Adw.ApplicationWindow):
 
 
 def main():
-    # Carregar CSS
-    css_provider = Gtk.CssProvider()
-    try:
-        css_provider.load_from_path("style.css")
-        Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(),
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
-    except Exception as e:
-        print(f"Erro ao carregar CSS: {e}")
-    
     app = Application()
     return app.run(None)
 
