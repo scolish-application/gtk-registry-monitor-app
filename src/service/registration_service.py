@@ -1,7 +1,7 @@
 import requests
 from service.session import Session
 
-SERVER_URL = "http://127.0.0.1:8080/api/registrations"
+SERVER_URL = "http://127.0.0.1:8080/api/registration"
 
 class RegistrationService:
     def get_entry_registrations(self, page=0, size=20):
