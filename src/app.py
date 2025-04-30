@@ -29,7 +29,13 @@ class Application(Adw.Application):
     def on_activate(self, app):
         # Show login window first
         self.login_window = LoginWindow(application=app)
+        # Conectar o sinal de login bem-sucedido à função show_main_window
+        self.login_window.connect("login-successful", self.on_login_successful)
         self.login_window.present()
+    
+    def on_login_successful(self, window):
+        # Esta função será chamada quando o sinal login-successful for emitido
+        self.show_main_window()
     
     def show_main_window(self):
         self.login_window.destroy()
